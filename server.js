@@ -6,7 +6,6 @@
 
 require("dotenv").config();
 const express = require("express");
-const axios = require("axios");
 const cors = require("cors");
 const path = require("path");
 
@@ -94,59 +93,6 @@ function resolveCloud(countryCode) {
   };
 }
 
-// ── IP Geolocation ────────────────────────────────────────────
-/**
- * Get geolocation data for an IP address using ip-api.com (free, no key needed)
- * Falls back to a demo payload when using localhost / private IPs.
- */
-async function getGeoData(ip) {
-  // Private / loopback IPs → return demo data
-  const isLocal =
-    ip === "::1" ||
-    ip === "127.0.0.1" ||
-    ip.startsWith("192.168.") ||
-    ip.startsWith("10.") ||
-    ip.startsWith("172.16.");
-
-  if (isLocal) {
-    return {
-      country: "India (Demo - localhost)",
-      countryCode: "IN",
-      city: "Mumbai",
-      isp: "Local Development",
-      ip: ip,
-    };
-  }
-
-  try {
-    const token = process.env.IPINFO_TOKEN || "YOUR_TOKEN";
-    const response = await axios.get(`https://ipinfo.io/${ip}/json?token=${token}`, {
-      timeout: 5000,
-    });
-
-    if (response.data.error) {
-      throw new Error("Geolocation lookup failed: " + response.data.error.message);
-    }
-
-    return {
-      country: response.data.country,       // ipinfo returns the 2-letter code here
-      countryCode: response.data.country,   // We use this for routing logic
-      city: response.data.city,
-      isp: response.data.org,               // ipinfo uses "org" for ISP/ASN info
-      ip: response.data.ip || ip,
-    };
-  } catch (err) {
-    // 👇 Fallback (VERY IMPORTANT)
-    return {
-      country: "Unknown",
-      countryCode: null,
-      city: "Unknown",
-      isp: "Unknown",
-      ip: ip,
-    };
-  }
-}
-
 // ── Routes ────────────────────────────────────────────────────
 
 /**
@@ -162,14 +108,15 @@ app.get("/api/route", async (req, res) => {
       req.socket.remoteAddress ||
       "127.0.0.1";
 
-    const geo = await getGeoData(rawIp);
-    const routing = resolveCloud(geo.countryCode);
+    // Cloudflare adds the visitor country code to this header.
+    const countryCode = req.headers["cf-ipcountry"] || null;
+    const routing = resolveCloud(countryCode);
 
     const payload = {
-      user_ip: geo.ip,
-      user_country: geo.country,
-      user_country_code: geo.countryCode,
-      user_city: geo.city,
+      user_ip: rawIp,
+      user_country: countryCode || "Unknown",
+      user_country_code: countryCode,
+      user_city: "Unknown",
       cloud: routing.cloud,
       region: routing.regionLabel,
       region_code: routing.region,
