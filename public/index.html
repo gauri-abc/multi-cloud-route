@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- SEO -->
+  <title>Multi Cloud Route – Geo-Based Cloud Routing Demo</title>
+  <meta name="description" content="See how your requests get routed to the nearest cloud (AWS, Azure, GCP) based on your geographic location in real time." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Starfield canvas (background) ── -->
+  <canvas id="starfield"></canvas>
+
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="logo">
+      <span class="logo-icon">✈</span>
+      <span class="logo-text">Multi<span class="accent">Cloud</span>Route</span>
+    </div>
+    <div id="health-badge" class="health-badge">● Connecting…</div>
+  </header>
+
+  <!-- ── Hero Section ── -->
+  <main class="main">
+
+    <!-- Left Panel: Info Cards -->
+    <section class="info-panel">
+
+      <!-- Trigger Button -->
+      <button id="detect-btn" class="detect-btn" onclick="detectRoute()">
+        <span class="btn-icon">🌍</span>
+        <span id="btn-label">Detect My Route</span>
+        <span class="btn-shine"></span>
+      </button>
+
+      <!-- Result Cards (shown after detection) -->
+      <div id="result-cards" class="result-cards hidden">
+
+        <div class="card card--country" id="card-country">
+          <div class="card-label">Your Location</div>
+          <div class="card-icon">📍</div>
+          <div class="card-value" id="val-country">—</div>
+          <div class="card-sub" id="val-city">—</div>
+          <div class="card-ip" id="val-ip">IP: —</div>
+        </div>
+
+        <div class="card card--cloud" id="card-cloud">
+          <div class="card-label">Serving Cloud</div>
+          <div class="card-icon" id="cloud-icon">☁️</div>
+          <div class="card-value" id="val-cloud">—</div>
+          <div class="card-region-badge" id="val-region">—</div>
+        </div>
+
+        <div class="card card--time" id="card-time">
+          <div class="card-label">Routed At</div>
+          <div class="card-icon">🕐</div>
+          <div class="card-value" id="val-time">—</div>
+          <div class="card-sub" id="val-latency">Response time: —</div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Right Panel: Animation Canvas -->
+    <section class="animation-panel">
+      <div class="globe-wrapper">
+
+        <!-- Route line SVG -->
+        <svg id="route-svg" class="route-svg" viewBox="0 0 500 300" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <filter id="glow">
+              <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+              <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+          <!-- Animated dashed route path -->
+          <path id="flight-path" class="flight-path" d="" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <!-- Glowing route line (active) -->
+          <path id="flight-path-active" class="flight-path-active" d="" fill="none" stroke-width="2.5" filter="url(#glow)"/>
+        </svg>
+
+        <!-- Nodes -->
+        <div class="node node--user" id="node-user">
+          <div class="node-pulse"></div>
+          <div class="node-dot"></div>
+          <div class="node-label">User</div>
+        </div>
+
+        <div class="node node--aws" id="node-aws" data-cloud="AWS">
+          <div class="node-dot cloud-dot aws"></div>
+          <div class="node-label">AWS</div>
+          <div class="node-sub">India</div>
+        </div>
+
+        <div class="node node--azure" id="node-azure" data-cloud="AZURE">
+          <div class="node-dot cloud-dot azure"></div>
+          <div class="node-label">Azure</div>
+          <div class="node-sub">Europe</div>
+        </div>
+
+        <div class="node node--gcp" id="node-gcp" data-cloud="GCP">
+          <div class="node-dot cloud-dot gcp"></div>
+          <div class="node-label">GCP</div>
+          <div class="node-sub">APAC</div>
+        </div>
+
+        <!-- ✈ Plane that flies along the route -->
+        <div id="plane" class="plane hidden">✈</div>
+
+      </div>
+
+      <!-- Caption -->
+      <p class="animation-caption" id="anim-caption">
+        Click <strong>Detect My Route</strong> to see which cloud serves you
+      </p>
+    </section>
+
+  </main>
+
+  <!-- ── Log Section ── -->
+  <section class="log-section">
+    <h2 class="log-title">
+      <span>📋</span> Last 5 Routing Requests
+    </h2>
+    <div id="log-list" class="log-list">
+      <div class="log-empty">No requests yet. Hit the button above!</div>
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer class="footer">
+    <p>Multi<span class="accent">Cloud</span>Route · Built with Node.js + Express · Geo routing via ip-api.com</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
