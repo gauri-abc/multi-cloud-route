@@ -158,7 +158,7 @@ app.get("/api/route", async (req, res) => {
   try {
     // Extract real IP (works behind proxies / load balancers)
     const rawIp =
-      req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.headers["x-forwarded-for"]?.split(",")[0]?.split(":")[0] ||
       req.socket.remoteAddress ||
       "127.0.0.1";
 
