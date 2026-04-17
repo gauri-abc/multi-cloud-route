@@ -11,6 +11,7 @@ const cors = require("cors");
 const path = require("path");
 
 const app = express();
+app.set("trust proxy", true);
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ────────────────────────────────────────────────
@@ -104,21 +105,32 @@ async function getGeoData(ip) {
     };
   }
 
-  const response = await axios.get(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,isp,query`, {
-    timeout: 5000,
-  });
+  try {
+    const response = await axios.get(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,isp,query`, {
+      timeout: 5000,
+    });
 
-  if (response.data.status !== "success") {
-    throw new Error("Geolocation lookup failed");
+    if (response.data.status !== "success") {
+      throw new Error("Geolocation lookup failed");
+    }
+
+    return {
+      country: response.data.country,
+      countryCode: response.data.countryCode,
+      city: response.data.city,
+      isp: response.data.isp,
+      ip: response.data.query,
+    };
+  } catch (err) {
+    // 👇 Fallback (VERY IMPORTANT)
+    return {
+      country: "Unknown (Azure fallback)",
+      countryCode: "IN",
+      city: "Fallback",
+      isp: "Azure",
+      ip: ip,
+    };
   }
-
-  return {
-    country: response.data.country,
-    countryCode: response.data.countryCode,
-    city: response.data.city,
-    isp: response.data.isp,
-    ip: response.data.query,
-  };
 }
 
 // ── Routes ────────────────────────────────────────────────────
@@ -132,7 +144,7 @@ app.get("/api/route", async (req, res) => {
   try {
     // Extract real IP (works behind proxies / load balancers)
     const rawIp =
-      (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+      req.headers["x-forwarded-for"]?.split(",")[0] ||
       req.socket.remoteAddress ||
       "127.0.0.1";
 
