@@ -64,21 +64,34 @@ const DEFAULT_CLOUD = "AWS";
  * Priority: ENV variable → country-based lookup → default (AWS)
  */
 function resolveCloud(countryCode) {
-  // Environment-level override (deployment-time pinning)
+  // ❗ If no location → DON'T route
+  if (!countryCode) {
+    return {
+      cloud: "UNKNOWN",
+      region: "Unknown",
+      regionLabel: "Location not detected",
+      color: "#999999",
+    };
+  }
+
   const envCloud = process.env.CLOUD_PROVIDER?.toUpperCase();
+
   if (envCloud && CLOUD_CONFIG[envCloud]) {
     return { cloud: envCloud, ...CLOUD_CONFIG[envCloud] };
   }
 
-  // Country-based routing
   for (const [cloud, config] of Object.entries(CLOUD_CONFIG)) {
     if (config.countries.includes(countryCode)) {
       return { cloud, ...config };
     }
   }
 
-  // Default fallback
-  return { cloud: DEFAULT_CLOUD, ...CLOUD_CONFIG[DEFAULT_CLOUD] };
+  return {
+    cloud: "UNKNOWN",
+    region: "Unknown",
+    regionLabel: "No matching region",
+    color: "#999999",
+  };
 }
 
 // ── IP Geolocation ────────────────────────────────────────────
@@ -106,28 +119,29 @@ async function getGeoData(ip) {
   }
 
   try {
-    const response = await axios.get(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,city,isp,query`, {
+    const token = process.env.IPINFO_TOKEN || "YOUR_TOKEN";
+    const response = await axios.get(`https://ipinfo.io/${ip}/json?token=${token}`, {
       timeout: 5000,
     });
 
-    if (response.data.status !== "success") {
-      throw new Error("Geolocation lookup failed");
+    if (response.data.error) {
+      throw new Error("Geolocation lookup failed: " + response.data.error.message);
     }
 
     return {
-      country: response.data.country,
-      countryCode: response.data.countryCode,
+      country: response.data.country,       // ipinfo returns the 2-letter code here
+      countryCode: response.data.country,   // We use this for routing logic
       city: response.data.city,
-      isp: response.data.isp,
-      ip: response.data.query,
+      isp: response.data.org,               // ipinfo uses "org" for ISP/ASN info
+      ip: response.data.ip || ip,
     };
   } catch (err) {
     // 👇 Fallback (VERY IMPORTANT)
     return {
-      country: "Unknown (Azure fallback)",
-      countryCode: "IN",
-      city: "Fallback",
-      isp: "Azure",
+      country: "Unknown",
+      countryCode: null,
+      city: "Unknown",
+      isp: "Unknown",
       ip: ip,
     };
   }

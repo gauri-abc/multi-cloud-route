@@ -118,7 +118,11 @@ async function detectRoute() {
     const latency = Math.round(performance.now() - t0);
 
     updateCards(data, latency);
-    updateAnimation(data.cloud);
+    if (data.cloud === "UNKNOWN") {
+      animCaption.innerHTML = `<span style="color:#f87171">⚠ Unable to detect location. Routing skipped.</span>`;
+    } else {
+      updateAnimation(data.cloud);
+    }
     addLogEntry(data);
     showResultCards();
   } catch (err) {
@@ -138,7 +142,7 @@ function updateCards(data, latency) {
   valIp.textContent      = `IP: ${data.user_ip || "—"}`;
 
   // Cloud card
-  const meta = CLOUD_META[data.cloud] || CLOUD_META.AWS;
+  const meta = CLOUD_META[data.cloud] || { icon: "🚫", label: "Unknown", class: "unknown", color: "#999999" };
   cloudIcon.textContent  = meta.icon;
   valCloud.textContent   = meta.label;
   valRegion.textContent  = data.region;
