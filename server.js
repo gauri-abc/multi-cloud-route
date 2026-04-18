@@ -1,7 +1,7 @@
 // ============================================================
-//  Multi-Cloud-Route  – Express Backend
-//  Detects user IP → country → maps to cloud provider
-//  Environment variables control which cloud "owns" this node
+//  Multi-Cloud-Route – Express Backend (STRICT REGION MODE)
+//  Each cloud ONLY serves its assigned region
+//  Uses Cloudflare header: cf-ipcountry
 // ============================================================
 
 require("dotenv").config();
@@ -16,25 +16,17 @@ const PORT = process.env.PORT || 3000;
 // ── Middleware ────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
-
-// Serve the static frontend from /public
 app.use(express.static(path.join(__dirname, "public")));
 
-// ── Cloud Routing Logic ───────────────────────────────────────
-// This is the core business rule that maps a country/continent
-// to a cloud provider.  The CLOUD_PROVIDER env-var overrides it
-// when we want a specific node to always claim a certain cloud.
-
+// ── Cloud Config ──────────────────────────────────────────────
 const CLOUD_CONFIG = {
   AWS: {
-    // Primary regions that route to AWS (India)
     countries: ["IN", "PK", "BD", "LK", "NP", "BT", "MV"],
     region: "ap-south-1",
     regionLabel: "India (Mumbai)",
     color: "#FF9900",
   },
   AZURE: {
-    // Primary regions that route to Azure (Europe)
     countries: [
       "GB", "DE", "FR", "IT", "ES", "NL", "SE", "NO", "DK", "FI",
       "PL", "AT", "BE", "CH", "PT", "CZ", "HU", "RO", "GR", "IE",
@@ -44,7 +36,6 @@ const CLOUD_CONFIG = {
     color: "#0089D6",
   },
   GCP: {
-    // Primary regions that route to GCP (APAC)
     countries: [
       "JP", "CN", "SG", "AU", "KR", "TH", "MY", "ID", "PH", "VN",
       "NZ", "HK", "TW",
@@ -55,74 +46,80 @@ const CLOUD_CONFIG = {
   },
 };
 
-// Default cloud when no env override is set and country doesn't match
-const DEFAULT_CLOUD = "AWS";
-
-/**
- * Determine which cloud should serve this request.
- * Priority: ENV variable → country-based lookup → default (AWS)
- */
+// ── STRICT ROUTING FUNCTION ───────────────────────────────────
 function resolveCloud(countryCode) {
-  // ❗ If no location → DON'T route
+  const currentCloud = process.env.CLOUD_PROVIDER?.toUpperCase();
+
+  // ❗ No location → reject
   if (!countryCode) {
     return {
       cloud: "UNKNOWN",
       region: "Unknown",
       regionLabel: "Location not detected",
       color: "#999999",
+      allowed: false,
     };
   }
 
-  const envCloud = process.env.CLOUD_PROVIDER?.toUpperCase();
-
-  if (envCloud && CLOUD_CONFIG[envCloud]) {
-    return { cloud: envCloud, ...CLOUD_CONFIG[envCloud] };
+  // ❗ Invalid cloud config
+  if (!currentCloud || !CLOUD_CONFIG[currentCloud]) {
+    return {
+      cloud: "UNKNOWN",
+      region: "Unknown",
+      regionLabel: "Invalid server config",
+      color: "#999999",
+      allowed: false,
+    };
   }
 
-  for (const [cloud, config] of Object.entries(CLOUD_CONFIG)) {
-    if (config.countries.includes(countryCode)) {
-      return { cloud, ...config };
-    }
+  const config = CLOUD_CONFIG[currentCloud];
+
+  // ✅ If user belongs to this cloud's region
+  if (config.countries.includes(countryCode)) {
+    return {
+      cloud: currentCloud,
+      region: config.region,
+      regionLabel: config.regionLabel,
+      color: config.color,
+      allowed: true,
+    };
   }
 
+  // ❌ If NOT from this region → reject
   return {
-    cloud: "UNKNOWN",
-    region: "Unknown",
-    regionLabel: "No matching region",
+    cloud: "REJECTED",
+    region: "Outside service region",
+    regionLabel: `This ${currentCloud} node only serves ${config.regionLabel}`,
     color: "#999999",
+    allowed: false,
   };
 }
 
 // ── Routes ────────────────────────────────────────────────────
-
-/**
- * GET /api/route
- * Main routing decision endpoint.
- * Returns geo info + which cloud handles this request.
- */
 app.get("/api/route", async (req, res) => {
   try {
-    // Extract real IP (works behind proxies / load balancers)
     const rawIp =
       req.headers["x-forwarded-for"]?.split(",")[0]?.split(":")[0] ||
       req.socket.remoteAddress ||
       "127.0.0.1";
 
-    // Cloudflare adds the visitor country code to this header.
     const countryCode = req.headers["cf-ipcountry"] || null;
+
     const routing = resolveCloud(countryCode);
 
     const payload = {
       user_ip: rawIp,
       user_country: countryCode || "Unknown",
       user_country_code: countryCode,
-      user_city: "Unknown",
       cloud: routing.cloud,
       region: routing.regionLabel,
       region_code: routing.region,
-      color: routing.color,
+      allowed: routing.allowed,
+      message: routing.allowed
+        ? "Request served successfully"
+        : "This region is not served by this cloud node",
       timestamp: new Date().toISOString(),
-      server_node: process.env.CLOUD_PROVIDER || "AUTO",
+      server_node: process.env.CLOUD_PROVIDER || "UNKNOWN",
     };
 
     res.json(payload);
@@ -135,29 +132,24 @@ app.get("/api/route", async (req, res) => {
   }
 });
 
-/**
- * GET /api/health
- * Quick health-check used by load-balancers / monitors.
- */
+// Health check
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
-    cloud: process.env.CLOUD_PROVIDER || "AUTO",
-    region: process.env.REGION || "AUTO",
+    cloud: process.env.CLOUD_PROVIDER,
+    region: process.env.REGION,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });
 });
 
-// Catch-all: send the frontend for any unmatched route
+// Frontend fallback
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ── Start Server ──────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n🌐 Multi-Cloud-Route server running at http://localhost:${PORT}`);
-  console.log(`   Cloud node  : ${process.env.CLOUD_PROVIDER || "AUTO (country-based)"}`);
-  console.log(`   Region      : ${process.env.REGION || "AUTO"}`);
-  console.log(`   Environment : ${process.env.NODE_ENV || "development"}\n`);
+// Start server
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`\n🌐 Server running on port ${PORT}`);
+  console.log(`☁ Cloud node: ${process.env.CLOUD_PROVIDER}`);
 });
