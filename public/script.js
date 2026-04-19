@@ -1,11 +1,9 @@
 /*
- * Multi-Cloud-Route - Frontend Script (FIXED)
- * Handles: API calls, card updates, plane animation, starfield, log
+ * Multi-Cloud-Route - Frontend Script (FINAL STABLE)
  */
 
 // ── Config ────────────────────────────────────────────────────
 const API_URL = "/api/route";
-const HEALTH_URL = "/api/health";
 const MAX_LOG_ENTRIES = 5;
 
 // ── State ─────────────────────────────────────────────────────
@@ -15,7 +13,6 @@ let requestLog = [];
 const detectBtn        = document.getElementById("detect-btn");
 const btnLabel         = document.getElementById("btn-label");
 const resultCards      = document.getElementById("result-cards");
-const healthBadge      = document.getElementById("health-badge");
 const logList          = document.getElementById("log-list");
 const animCaption      = document.getElementById("anim-caption");
 const plane            = document.getElementById("plane");
@@ -23,20 +20,16 @@ const flightPath       = document.getElementById("flight-path");
 const flightPathActive = document.getElementById("flight-path-active");
 
 const valCountry = document.getElementById("val-country");
-const valCity    = document.getElementById("val-city");
 const valIp      = document.getElementById("val-ip");
 const valCloud   = document.getElementById("val-cloud");
 const cloudIcon  = document.getElementById("cloud-icon");
 const valRegion  = document.getElementById("val-region");
-const valTime    = document.getElementById("val-time");
-const valLatency = document.getElementById("val-latency");
-const cardCloud  = document.getElementById("card-cloud");
 
 // ── Cloud Meta ────────────────────────────────────────────────
 const CLOUD_META = {
-  AWS:   { icon: "☁️", label: "Amazon Web Services", class: "aws",   color: "#FF9900" },
-  AZURE: { icon: "🔷", label: "Microsoft Azure",     class: "azure", color: "#0089D6" },
-  GCP:   { icon: "🌐", label: "Google Cloud",        class: "gcp",   color: "#4285F4" },
+  AWS:   { icon: "☁️", label: "Amazon Web Services", color: "#FF9900" },
+  AZURE: { icon: "🔷", label: "Microsoft Azure",     color: "#0089D6" },
+  GCP:   { icon: "🌐", label: "Google Cloud",        color: "#4285F4" },
 };
 
 // ── Detect Route ──────────────────────────────────────────────
@@ -46,49 +39,79 @@ async function detectRoute() {
   detectBtn.classList.add("loading");
   btnLabel.textContent = "Detecting…";
 
-  const t0 = performance.now();
-
   try {
     const res = await fetch(API_URL);
-    const data = await res.json();
-    const latency = Math.round(performance.now() - t0);
 
-    updateCards(data, latency);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    updateCards(data);
     handleRouting(data);
     addLogEntry(data);
-    showResultCards();
+    resultCards.classList.remove("hidden");
 
   } catch (err) {
-    console.error(err);
-    animCaption.innerHTML = `⚠ Error detecting route`;
+    console.error("Fetch error:", err);
+
+    stopAnimation();
+
+    animCaption.innerHTML = `
+      <span style="color:#f87171">
+        ⚠ Unable to fetch route (server/network issue)
+      </span>
+    `;
   } finally {
     detectBtn.classList.remove("loading");
     btnLabel.textContent = "Detect My Route";
   }
 }
 
-// ── HANDLE ROUTING (🔥 FIX HERE) ──────────────────────────────
+// ── HANDLE ROUTING (FIXED) ────────────────────────────────────
 function handleRouting(data) {
-  const cloud = data.cloud;
 
-  if (cloud === "UNKNOWN" || cloud === "REJECTED") {
+  // ❌ Unknown location
+  if (data.cloud === "UNKNOWN") {
     stopAnimation();
-
     animCaption.innerHTML = `
       <span style="color:#f87171">
-        ⚠ ${data.message || "Routing not available for this region"}
+        ⚠ ${data.message || "Location not detected"}
       </span>
     `;
     return;
   }
 
-  updateAnimation(cloud);
+  // ❌ Rejected region
+  if (!data.allowed) {
+    stopAnimation();
+    animCaption.innerHTML = `
+      <span style="color:#f87171">
+        🚫 ${data.message}
+      </span>
+    `;
+    return;
+  }
+
+  // ✅ Allowed → animate safely
+  try {
+    updateAnimation(data.cloud);
+  } catch (err) {
+    console.error("Animation error:", err);
+    stopAnimation();
+
+    animCaption.innerHTML = `
+      <span style="color:#f87171">
+        ⚠ UI error while rendering route
+      </span>
+    `;
+  }
 }
 
-// ── STOP ANIMATION (NEW) ──────────────────────────────────────
+// ── STOP ANIMATION ────────────────────────────────────────────
 function stopAnimation() {
   plane.classList.add("hidden");
-  plane.style.animation = "none";
 
   flightPath.setAttribute("d", "");
   flightPathActive.setAttribute("d", "");
@@ -97,21 +120,28 @@ function stopAnimation() {
 }
 
 // ── Update Cards ──────────────────────────────────────────────
-function updateCards(data, latency) {
+function updateCards(data) {
   valCountry.textContent = data.user_country || "Unknown";
   valIp.textContent      = `IP: ${data.user_ip || "—"}`;
 
-  const meta = CLOUD_META[data.cloud] || { icon: "🚫", label: "Unknown", class: "unknown", color: "#999" };
+  // ❌ Rejected UI
+  if (!data.allowed) {
+    cloudIcon.textContent = "🚫";
+    valCloud.textContent  = `${data.cloud} (Rejected)`;
+    valRegion.textContent = data.message;
+    return;
+  }
+
+  // ✅ Normal UI
+  const meta = CLOUD_META[data.cloud] || {
+    icon: "❓",
+    label: "Unknown",
+    color: "#999"
+  };
 
   cloudIcon.textContent = meta.icon;
   valCloud.textContent  = meta.label;
   valRegion.textContent = data.region;
-
-  cardCloud.classList.remove("aws", "azure", "gcp");
-  cardCloud.classList.add(meta.class);
-
-  valTime.textContent    = new Date(data.timestamp).toLocaleTimeString();
-  valLatency.textContent = `Response time: ${latency}ms`;
 }
 
 // ── Animation Logic ───────────────────────────────────────────
@@ -130,12 +160,12 @@ function buildArcPath(from, to) {
 
 function updateAnimation(cloud) {
   const from = NODE_POS.USER;
-  const to   = NODE_POS[cloud]; // ❗ no fallback anymore
+  const to   = NODE_POS[cloud];
 
-  if (!to) return; // safety
+  if (!to) return;
 
-  const arc  = buildArcPath(from, to);
   const meta = CLOUD_META[cloud];
+  const arc  = buildArcPath(from, to);
 
   flightPath.setAttribute("d", arc);
   flightPathActive.setAttribute("d", arc);
@@ -143,7 +173,11 @@ function updateAnimation(cloud) {
 
   flyPlane(from, to, meta.color);
 
-  animCaption.innerHTML = `✈ Routing to <strong style="color:${meta.color}">${meta.label}</strong>`;
+  animCaption.innerHTML = `
+    ✈ Routing to <strong style="color:${meta.color}">
+      ${meta.label}
+    </strong>
+  `;
 }
 
 // ── Plane Animation ───────────────────────────────────────────
@@ -151,12 +185,10 @@ function flyPlane(from, to, color) {
   plane.classList.remove("hidden");
   plane.style.color = color;
 
-  const duration = 1500;
-  let start = null;
+  let progress = 0;
 
-  function animate(ts) {
-    if (!start) start = ts;
-    const progress = Math.min((ts - start) / duration, 1);
+  function animate() {
+    progress += 0.02;
 
     const x = from.x + (to.x - from.x) * progress;
     const y = from.y + (to.y - from.y) * progress;
@@ -164,8 +196,11 @@ function flyPlane(from, to, color) {
     plane.style.left = x + "px";
     plane.style.top  = y + "px";
 
-    if (progress < 1) requestAnimationFrame(animate);
-    else plane.classList.add("hidden");
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      plane.classList.add("hidden");
+    }
   }
 
   requestAnimationFrame(animate);
@@ -183,7 +218,9 @@ function addLogEntry(data) {
   if (requestLog.length > MAX_LOG_ENTRIES) requestLog.pop();
 
   logList.innerHTML = requestLog.map(e => `
-    <div>📍 ${e.country} → ☁ ${e.cloud} (${e.region})</div>
+    <div>
+      📍 ${e.country} → ☁ ${e.cloud} (${e.region})
+    </div>
   `).join("");
 }
 
