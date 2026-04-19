@@ -1,5 +1,5 @@
 /*
- * Multi-Cloud-Route - Frontend Script (FINAL PRODUCTION VERSION)
+ * Multi-Cloud-Route - Frontend Script (FINAL PRODUCTION VERSION - STABLE ALL CLOUDS)
  */
 
 // ── Config ────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ const CLOUD_META = {
   GCP:   { icon: "🌐", label: "Google Cloud",        color: "#4285F4" },
 };
 
-// ── Region Labels (for caption clarity) ───────────────────────
+// ── Region Labels ─────────────────────────────────────────────
 const REGION_LABELS = {
   AWS: "India (Mumbai)",
   AZURE: "Europe (Netherlands)",
@@ -48,19 +48,17 @@ async function detectRoute() {
 
   try {
     const res = await fetch(API_URL);
-
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
 
-    // Safe UI execution
     try {
       updateCards(data);
       handleRouting(data);
       addLogEntry(data);
       resultCards.classList.remove("hidden");
     } catch (uiError) {
-      console.error("UI error:", uiError);
+      console.error("UI crash:", uiError);
       stopAnimation();
       animCaption.innerHTML = `⚠ UI rendering issue`;
     }
@@ -78,21 +76,18 @@ async function detectRoute() {
 // ── HANDLE ROUTING ────────────────────────────────────────────
 function handleRouting(data) {
 
-  // ❌ Unknown location
   if (data.cloud === "UNKNOWN") {
     stopAnimation();
     animCaption.innerHTML = `⚠ ${data.message || "Location not detected"}`;
     return;
   }
 
-  // ❌ Rejected region
   if (!data.allowed) {
     stopAnimation();
     animCaption.innerHTML = `🚫 ${data.message}`;
     return;
   }
 
-  // ✅ Allowed → animate
   updateAnimation(data.cloud);
 }
 
@@ -106,7 +101,7 @@ function stopAnimation() {
   document.querySelectorAll(".node").forEach(n => n.classList.remove("active"));
 }
 
-// ── Update Cards ──────────────────────────────────────────────
+// ── Update Cards (FIXED FOR GCP) ──────────────────────────────
 function updateCards(data) {
   try {
     valCountry.textContent = data.user_country || "Unknown";
@@ -115,17 +110,24 @@ function updateCards(data) {
     if (!data.allowed) {
       cloudIcon.textContent = "🚫";
       valCloud.textContent  = `${data.cloud} (Rejected)`;
-      valRegion.textContent = data.message;
+      valRegion.textContent = data.message || "";
       return;
     }
 
     const meta = CLOUD_META[data.cloud];
 
-    if (!meta) throw new Error("Invalid cloud");
+    // ✅ SAFE fallback (THIS FIXES GCP CRASH)
+    if (!meta) {
+      console.warn("Unknown cloud:", data.cloud);
+      cloudIcon.textContent = "❓";
+      valCloud.textContent  = data.cloud || "Unknown";
+      valRegion.textContent = data.region || "";
+      return;
+    }
 
     cloudIcon.textContent = meta.icon;
     valCloud.textContent  = meta.label;
-    valRegion.textContent = data.region;
+    valRegion.textContent = data.region || "";
 
   } catch (err) {
     console.error("updateCards failed:", err);
@@ -146,15 +148,25 @@ function buildArcPath(from, to) {
   return `M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`;
 }
 
+// ── Animation (FIXED FOR GCP) ─────────────────────────────────
 function updateAnimation(cloud) {
   try {
     const from = NODE_POS.USER;
     const to   = NODE_POS[cloud];
 
-    if (!to) throw new Error("Invalid node");
+    if (!to) {
+      console.warn("Invalid node:", cloud);
+      return;
+    }
 
     const meta = CLOUD_META[cloud];
-    const arc  = buildArcPath(from, to);
+
+    if (!meta) {
+      console.warn("Missing meta:", cloud);
+      return;
+    }
+
+    const arc = buildArcPath(from, to);
 
     flightPath.setAttribute("d", arc);
     flightPathActive.setAttribute("d", arc);
