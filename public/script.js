@@ -1,5 +1,5 @@
 /*
- * Multi-Cloud-Route - Frontend Script (FINAL STABLE)
+ * Multi-Cloud-Route - Frontend Script (FINAL PRODUCTION VERSION)
  */
 
 // ── Config ────────────────────────────────────────────────────
@@ -32,6 +32,13 @@ const CLOUD_META = {
   GCP:   { icon: "🌐", label: "Google Cloud",        color: "#4285F4" },
 };
 
+// ── Region Labels (for caption clarity) ───────────────────────
+const REGION_LABELS = {
+  AWS: "India (Mumbai)",
+  AZURE: "Europe (Netherlands)",
+  GCP: "APAC (Taiwan)",
+};
+
 // ── Detect Route ──────────────────────────────────────────────
 async function detectRoute() {
   if (detectBtn.classList.contains("loading")) return;
@@ -42,71 +49,51 @@ async function detectRoute() {
   try {
     const res = await fetch(API_URL);
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data = await res.json();
 
-    updateCards(data);
-    handleRouting(data);
-    addLogEntry(data);
-    resultCards.classList.remove("hidden");
+    // Safe UI execution
+    try {
+      updateCards(data);
+      handleRouting(data);
+      addLogEntry(data);
+      resultCards.classList.remove("hidden");
+    } catch (uiError) {
+      console.error("UI error:", uiError);
+      stopAnimation();
+      animCaption.innerHTML = `⚠ UI rendering issue`;
+    }
 
   } catch (err) {
     console.error("Fetch error:", err);
-
     stopAnimation();
-
-    animCaption.innerHTML = `
-      <span style="color:#f87171">
-        ⚠ Unable to fetch route (server/network issue)
-      </span>
-    `;
+    animCaption.innerHTML = `⚠ Network / API error`;
   } finally {
     detectBtn.classList.remove("loading");
     btnLabel.textContent = "Detect My Route";
   }
 }
 
-// ── HANDLE ROUTING (FIXED) ────────────────────────────────────
+// ── HANDLE ROUTING ────────────────────────────────────────────
 function handleRouting(data) {
 
   // ❌ Unknown location
   if (data.cloud === "UNKNOWN") {
     stopAnimation();
-    animCaption.innerHTML = `
-      <span style="color:#f87171">
-        ⚠ ${data.message || "Location not detected"}
-      </span>
-    `;
+    animCaption.innerHTML = `⚠ ${data.message || "Location not detected"}`;
     return;
   }
 
   // ❌ Rejected region
   if (!data.allowed) {
     stopAnimation();
-    animCaption.innerHTML = `
-      <span style="color:#f87171">
-        🚫 ${data.message}
-      </span>
-    `;
+    animCaption.innerHTML = `🚫 ${data.message}`;
     return;
   }
 
-  // ✅ Allowed → animate safely
-  try {
-    updateAnimation(data.cloud);
-  } catch (err) {
-    console.error("Animation error:", err);
-    stopAnimation();
-
-    animCaption.innerHTML = `
-      <span style="color:#f87171">
-        ⚠ UI error while rendering route
-      </span>
-    `;
-  }
+  // ✅ Allowed → animate
+  updateAnimation(data.cloud);
 }
 
 // ── STOP ANIMATION ────────────────────────────────────────────
@@ -121,27 +108,28 @@ function stopAnimation() {
 
 // ── Update Cards ──────────────────────────────────────────────
 function updateCards(data) {
-  valCountry.textContent = data.user_country || "Unknown";
-  valIp.textContent      = `IP: ${data.user_ip || "—"}`;
+  try {
+    valCountry.textContent = data.user_country || "Unknown";
+    valIp.textContent      = `IP: ${data.user_ip || "—"}`;
 
-  // ❌ Rejected UI
-  if (!data.allowed) {
-    cloudIcon.textContent = "🚫";
-    valCloud.textContent  = `${data.cloud} (Rejected)`;
-    valRegion.textContent = data.message;
-    return;
+    if (!data.allowed) {
+      cloudIcon.textContent = "🚫";
+      valCloud.textContent  = `${data.cloud} (Rejected)`;
+      valRegion.textContent = data.message;
+      return;
+    }
+
+    const meta = CLOUD_META[data.cloud];
+
+    if (!meta) throw new Error("Invalid cloud");
+
+    cloudIcon.textContent = meta.icon;
+    valCloud.textContent  = meta.label;
+    valRegion.textContent = data.region;
+
+  } catch (err) {
+    console.error("updateCards failed:", err);
   }
-
-  // ✅ Normal UI
-  const meta = CLOUD_META[data.cloud] || {
-    icon: "❓",
-    label: "Unknown",
-    color: "#999"
-  };
-
-  cloudIcon.textContent = meta.icon;
-  valCloud.textContent  = meta.label;
-  valRegion.textContent = data.region;
 }
 
 // ── Animation Logic ───────────────────────────────────────────
@@ -159,25 +147,32 @@ function buildArcPath(from, to) {
 }
 
 function updateAnimation(cloud) {
-  const from = NODE_POS.USER;
-  const to   = NODE_POS[cloud];
+  try {
+    const from = NODE_POS.USER;
+    const to   = NODE_POS[cloud];
 
-  if (!to) return;
+    if (!to) throw new Error("Invalid node");
 
-  const meta = CLOUD_META[cloud];
-  const arc  = buildArcPath(from, to);
+    const meta = CLOUD_META[cloud];
+    const arc  = buildArcPath(from, to);
 
-  flightPath.setAttribute("d", arc);
-  flightPathActive.setAttribute("d", arc);
-  flightPathActive.setAttribute("stroke", meta.color);
+    flightPath.setAttribute("d", arc);
+    flightPathActive.setAttribute("d", arc);
+    flightPathActive.setAttribute("stroke", meta.color);
 
-  flyPlane(from, to, meta.color);
+    flyPlane(from, to, meta.color);
 
-  animCaption.innerHTML = `
-    ✈ Routing to <strong style="color:${meta.color}">
-      ${meta.label}
-    </strong>
-  `;
+    animCaption.innerHTML = `
+      ✈ Routing to 
+      <strong style="color:${meta.color}">
+        ${meta.label}
+      </strong>
+      · ${REGION_LABELS[cloud] || ""}
+    `;
+
+  } catch (err) {
+    console.error("Animation error:", err);
+  }
 }
 
 // ── Plane Animation ───────────────────────────────────────────
